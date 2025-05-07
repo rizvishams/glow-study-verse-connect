@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SidebarProvider } from "@/components/ui/sidebar";
 import DashboardSidebar from '@/components/DashboardSidebar';
 import DigitalClock from '@/components/DigitalClock';
@@ -7,12 +7,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Bell, Users } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Link } from 'react-router-dom';
+import { toast } from "sonner";
+import { Link, useNavigate } from 'react-router-dom';
+import AIStudyBuddy from '@/components/AIStudyBuddy';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 
 const FindBuddy = () => {
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
   const [selectedStudyStyle, setSelectedStudyStyle] = useState('');
   const [availability, setAvailability] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [aiDialogOpen, setAiDialogOpen] = useState(false);
+  const [connectedBuddyId, setConnectedBuddyId] = useState<number | null>(null);
+  const [connectingToId, setConnectingToId] = useState<number | null>(null);
+  const navigate = useNavigate();
 
   const subjects = [
     'Web Development', 'Data Science', 'Mathematics', 'Physics', 
@@ -78,6 +86,23 @@ const FindBuddy = () => {
     }
   ];
 
+  // Set up the AI fallback timer when searching
+  useEffect(() => {
+    let timer: number | undefined;
+    
+    if (isSearching && !connectedBuddyId) {
+      timer = window.setTimeout(() => {
+        setIsSearching(false);
+        setAiDialogOpen(true);
+        toast.info("No study buddies available right now. Connecting you with AI Study Buddy!");
+      }, 120000); // 2 minutes in milliseconds
+    }
+    
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [isSearching, connectedBuddyId]);
+
   const handleSubjectToggle = (subject: string) => {
     if (selectedSubjects.includes(subject)) {
       setSelectedSubjects(selectedSubjects.filter(s => s !== subject));
@@ -93,7 +118,45 @@ const FindBuddy = () => {
       studyStyle: selectedStudyStyle,
       availability: availability
     });
-    // The results would be dynamically loaded
+    setIsSearching(true);
+    toast.success("Searching for study buddies...");
+  };
+
+  const handleConnectRequest = (buddyId: number) => {
+    setConnectingToId(buddyId);
+    toast.success(`Connection request sent to ${potentialBuddies.find(b => b.id === buddyId)?.name}!`);
+    
+    // Simulate response after a short delay
+    setTimeout(() => {
+      const accepted = Math.random() > 0.3; // 70% chance of accepting
+      
+      if (accepted) {
+        setConnectedBuddyId(buddyId);
+        toast.success(`${potentialBuddies.find(b => b.id === buddyId)?.name} accepted your request!`);
+        
+        // Redirect to messages page after a short delay
+        setTimeout(() => {
+          navigate('/messages', { 
+            state: { 
+              buddy: potentialBuddies.find(b => b.id === buddyId),
+              subject: selectedSubjects.length > 0 ? selectedSubjects[0] : 'general studies'
+            } 
+          });
+        }, 1500);
+      } else {
+        setConnectingToId(null);
+        toast.error(`${potentialBuddies.find(b => b.id === buddyId)?.name} is not available right now.`);
+      }
+    }, 2000);
+  };
+
+  const handleAIConnect = () => {
+    navigate('/messages', { 
+      state: { 
+        isAI: true,
+        subject: selectedSubjects.length > 0 ? selectedSubjects[0] : 'general studies'
+      } 
+    });
   };
 
   return (
@@ -200,6 +263,15 @@ const FindBuddy = () => {
                       <Users className="mr-2 h-4 w-4" />
                       Find Matching Buddies
                     </Button>
+                    
+                    <Button 
+                      variant="outline" 
+                      className="w-full border-neon-cyan text-neon-cyan hover:bg-neon-cyan/10"
+                      onClick={() => setAiDialogOpen(true)}
+                    >
+                      <Bot className="mr-2 h-4 w-4" />
+                      Connect with AI Study Buddy
+                    </Button>
                   </CardContent>
                 </Card>
               </div>
@@ -254,8 +326,23 @@ const FindBuddy = () => {
                           <Button variant="outline" className="border-neon-cyan text-neon-cyan hover:bg-neon-cyan/10">
                             View Profile
                           </Button>
-                          <Button className="bg-neon-purple text-white">
-                            Connect
+                          <Button 
+                            className={`${
+                              connectedBuddyId === buddy.id 
+                                ? 'bg-neon-green' 
+                                : connectingToId === buddy.id 
+                                  ? 'bg-gray-500'
+                                  : 'bg-neon-purple'
+                            } text-white`}
+                            onClick={() => handleConnectRequest(buddy.id)}
+                            disabled={connectingToId !== null}
+                          >
+                            {connectedBuddyId === buddy.id 
+                              ? 'Connected' 
+                              : connectingToId === buddy.id 
+                                ? 'Connecting...'
+                                : 'Connect'
+                            }
                           </Button>
                         </div>
                       </CardContent>
@@ -265,6 +352,34 @@ const FindBuddy = () => {
               </div>
             </div>
           </main>
+          
+          {/* AI Buddy Dialog */}
+          <Dialog open={aiDialogOpen} onOpenChange={setAiDialogOpen}>
+            <DialogContent className="sm:max-w-xl bg-background/80 backdrop-blur-lg border-white/10">
+              <div className="p-2">
+                <h2 className="text-xl text-neon-cyan font-bold mb-4">AI Study Buddy</h2>
+                <p className="text-white/80 mb-6">
+                  Would you like to connect with an AI Study Buddy? It can help you with your studies, answer questions, and provide personalized guidance.
+                </p>
+                <div className="flex space-x-3 justify-end">
+                  <Button 
+                    variant="outline" 
+                    className="border-white/20 text-white/70" 
+                    onClick={() => setAiDialogOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button 
+                    className="bg-neon-cyan text-background" 
+                    onClick={handleAIConnect}
+                  >
+                    <Bot className="mr-2 h-4 w-4" />
+                    Connect with AI Buddy
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
     </SidebarProvider>
