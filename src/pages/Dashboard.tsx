@@ -5,7 +5,7 @@ import DashboardSidebar from '@/components/DashboardSidebar';
 import DigitalClock from '@/components/DigitalClock';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Bell, Calendar, MessageSquare, Search, User } from 'lucide-react';
+import { Bell, Calendar, MessageSquare, Search, User, Award } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Link } from 'react-router-dom';
 
