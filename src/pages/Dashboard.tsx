@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import DashboardSidebar from '@/components/DashboardSidebar';
 import DigitalClock from '@/components/DigitalClock';
@@ -8,8 +8,13 @@ import { Button } from '@/components/ui/button';
 import { Bell, Calendar, MessageSquare, Search, User, Award } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Link } from 'react-router-dom';
+import VideoConference from '@/components/VideoConference';
 
 const Dashboard = () => {
+  // Added state for video conference
+  const [videoConferenceOpen, setVideoConferenceOpen] = useState(false);
+  const [currentSession, setCurrentSession] = useState<any>(null);
+
   // Mock upcoming sessions data
   const upcomingSessions = [
     {
@@ -18,7 +23,9 @@ const Dashboard = () => {
       date: "May 8, 2025",
       time: "3:00 PM",
       buddy: "Alex Johnson",
-      avatar: ""
+      avatar: "",
+      duration: "1 hour",
+      buddies: ["Alex Johnson"]
     },
     {
       id: 2,
@@ -26,7 +33,9 @@ const Dashboard = () => {
       date: "May 10, 2025",
       time: "5:30 PM",
       buddy: "Sarah Parker",
-      avatar: ""
+      avatar: "",
+      duration: "1.5 hours",
+      buddies: ["Sarah Parker"]
     }
   ];
   
@@ -54,6 +63,11 @@ const Dashboard = () => {
       avatar: ""
     }
   ];
+
+  const handleJoinSession = (session: any) => {
+    setCurrentSession(session);
+    setVideoConferenceOpen(true);
+  };
 
   return (
     <SidebarProvider>
@@ -144,10 +158,16 @@ const Dashboard = () => {
                               </div>
                             </div>
                             <div className="flex space-x-2">
-                              <Button variant="outline" size="sm" className="border-neon-cyan text-neon-cyan hover:bg-neon-cyan/10">
-                                Details
-                              </Button>
-                              <Button size="sm" className="bg-neon-purple text-white">
+                              <Link to="/scheduling">
+                                <Button variant="outline" size="sm" className="border-neon-cyan text-neon-cyan hover:bg-neon-cyan/10">
+                                  Details
+                                </Button>
+                              </Link>
+                              <Button 
+                                size="sm" 
+                                className="bg-neon-purple text-white"
+                                onClick={() => handleJoinSession(session)}
+                              >
                                 Join
                               </Button>
                             </div>
@@ -157,9 +177,11 @@ const Dashboard = () => {
                     ) : (
                       <div className="text-center py-8">
                         <p className="text-gray-400">No upcoming sessions. Schedule one now!</p>
-                        <Button className="mt-4 bg-neon-cyan text-white">
-                          Schedule Session
-                        </Button>
+                        <Link to="/scheduling">
+                          <Button className="mt-4 bg-neon-cyan text-white">
+                            Schedule Session
+                          </Button>
+                        </Link>
                       </div>
                     )}
                   </CardContent>
@@ -317,6 +339,13 @@ const Dashboard = () => {
               </div>
             </div>
           </main>
+          
+          {/* Video conference component */}
+          <VideoConference 
+            open={videoConferenceOpen}
+            onClose={() => setVideoConferenceOpen(false)}
+            sessionData={currentSession}
+          />
         </div>
       </div>
     </SidebarProvider>

@@ -14,7 +14,7 @@ import {
   SidebarTrigger,
   SidebarProvider,
 } from "@/components/ui/sidebar";
-import { Award, Calendar, Clock, Settings, Users, Home, BarChart } from 'lucide-react';
+import { Award, Calendar, Clock, Settings, Users, Home, BarChart, MessageSquare } from 'lucide-react';
 
 const DashboardSidebar = () => {
   return (
@@ -50,6 +50,14 @@ const DashboardSidebar = () => {
                   <Link to="/find-buddy">
                     <Users className="h-5 w-5 mr-3" />
                     <span>Find Buddy</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild>
+                  <Link to="/messages">
+                    <MessageSquare className="h-5 w-5 mr-3" />
+                    <span>Messages</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

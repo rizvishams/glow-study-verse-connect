@@ -7,6 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Bell, Calendar } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import VideoConference from '@/components/VideoConference';
+import { toast } from "sonner";
 
 const Scheduling = () => {
   const [newSession, setNewSession] = useState({
@@ -17,6 +19,10 @@ const Scheduling = () => {
     description: '',
     inviteBuddies: []
   });
+  
+  // Added state for video conference
+  const [videoConferenceOpen, setVideoConferenceOpen] = useState(false);
+  const [currentSession, setCurrentSession] = useState<any>(null);
   
   // Mock study buddies data
   const myBuddies = [
@@ -58,8 +64,16 @@ const Scheduling = () => {
   const handleSchedule = (e: React.FormEvent) => {
     e.preventDefault();
     // In a real app, this would send the data to a backend
-    console.log("Scheduling session:", newSession);
-    // Reset form or show confirmation
+    toast.success(`Study session for ${newSession.subject} scheduled successfully!`);
+    // Reset form
+    setNewSession({
+      subject: '',
+      date: '',
+      time: '',
+      duration: '1',
+      description: '',
+      inviteBuddies: []
+    });
   };
   
   const handleBuddyToggle = (buddyId: number) => {
@@ -76,6 +90,11 @@ const Scheduling = () => {
       ...newSession,
       inviteBuddies: currentInvites
     });
+  };
+
+  const handleJoinSession = (session: any) => {
+    setCurrentSession(session);
+    setVideoConferenceOpen(true);
   };
 
   return (
@@ -153,7 +172,11 @@ const Scheduling = () => {
                                 <Button variant="outline" size="sm" className="border-neon-cyan text-neon-cyan hover:bg-neon-cyan/10">
                                   Edit
                                 </Button>
-                                <Button size="sm" className="bg-neon-purple text-white">
+                                <Button 
+                                  size="sm" 
+                                  className="bg-neon-purple text-white"
+                                  onClick={() => handleJoinSession(session)}
+                                >
                                   Join
                                 </Button>
                               </div>
@@ -305,6 +328,13 @@ const Scheduling = () => {
               </div>
             </div>
           </main>
+          
+          {/* Video conference component */}
+          <VideoConference 
+            open={videoConferenceOpen}
+            onClose={() => setVideoConferenceOpen(false)}
+            sessionData={currentSession}
+          />
         </div>
       </div>
     </SidebarProvider>

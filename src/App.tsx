@@ -14,6 +14,7 @@ import Pomodoro from "./pages/Pomodoro";
 import FindBuddy from "./pages/FindBuddy";
 import Scheduling from "./pages/Scheduling";
 import Progress from "./pages/Progress";
+import Messages from "./pages/Messages";
 
 const queryClient = new QueryClient();
 
@@ -33,6 +34,7 @@ const App = () => (
           <Route path="/find-buddy" element={<FindBuddy />} />
           <Route path="/scheduling" element={<Scheduling />} />
           <Route path="/progress" element={<Progress />} />
+          <Route path="/messages" element={<Messages />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
