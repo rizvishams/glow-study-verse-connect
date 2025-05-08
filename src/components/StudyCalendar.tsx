@@ -83,7 +83,7 @@ const StudyCalendar: React.FC = () => {
           components={{
             DayContent: (props) => (
               <div className="relative flex justify-center items-center">
-                {props.day.toString()}
+                {props.children}
                 <div className="absolute -bottom-1">
                   {renderDay(props.date)}
                 </div>
