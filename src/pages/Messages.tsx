@@ -148,7 +148,7 @@ const Messages = () => {
                         onClick={() => navigate('/find-buddy')}
                         size="sm"
                       >
-                        <Users className="mr-2 h-4 w-4" />
+                        <User className="mr-2 h-4 w-4" />
                         Find Buddies
                       </Button>
                     </div>
