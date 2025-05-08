@@ -81,11 +81,11 @@ const StudyCalendar: React.FC = () => {
           onSelect={(newDate) => newDate && setDate(newDate)}
           className="rounded-md p-3 bg-white/5 border border-white/10 pointer-events-auto"
           components={{
-            DayContent: (props) => (
+            DayContent: ({ date, ...props }) => (
               <div className="relative flex justify-center items-center">
-                {props.children}
+                <div>{date.getDate()}</div>
                 <div className="absolute -bottom-1">
-                  {renderDay(props.date)}
+                  {renderDay(date)}
                 </div>
               </div>
             )
