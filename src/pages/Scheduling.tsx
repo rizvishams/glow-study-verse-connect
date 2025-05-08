@@ -5,10 +5,12 @@ import DashboardSidebar from '@/components/DashboardSidebar';
 import DigitalClock from '@/components/DigitalClock';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Bell, Calendar } from 'lucide-react';
+import { Calendar as CalendarIcon } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import VideoConference from '@/components/VideoConference';
 import { toast } from "sonner";
+import NotificationSystem from '@/components/NotificationSystem';
+import StudyCalendar from '@/components/StudyCalendar';
 
 const Scheduling = () => {
   const [newSession, setNewSession] = useState({
@@ -110,9 +112,7 @@ const Scheduling = () => {
             
             <div className="flex items-center space-x-4">
               <DigitalClock />
-              <Button variant="ghost" size="icon">
-                <Bell className="h-5 w-5 text-gray-300" />
-              </Button>
+              <NotificationSystem onJoinMeeting={handleJoinSession} />
               <Avatar>
                 <AvatarImage src="" />
                 <AvatarFallback className="bg-neon-purple text-white">JD</AvatarFallback>
@@ -141,7 +141,7 @@ const Scheduling = () => {
                             <div className="flex items-start justify-between">
                               <div className="flex gap-4">
                                 <div className="bg-neon-purple/20 p-3 rounded-full flex-shrink-0">
-                                  <Calendar className="h-6 w-6 text-neon-purple" />
+                                  <CalendarIcon className="h-6 w-6 text-neon-purple" />
                                 </div>
                                 <div>
                                   <h3 className="font-medium text-white text-lg">{session.subject}</h3>
@@ -186,7 +186,7 @@ const Scheduling = () => {
                       </div>
                     ) : (
                       <div className="text-center py-10">
-                        <Calendar className="h-12 w-12 text-gray-500 mx-auto mb-4" />
+                        <CalendarIcon className="h-12 w-12 text-gray-500 mx-auto mb-4" />
                         <p className="text-gray-400">No upcoming sessions scheduled</p>
                         <p className="text-gray-500 text-sm mt-1">Create a new session to get started</p>
                       </div>
@@ -194,18 +194,8 @@ const Scheduling = () => {
                   </CardContent>
                 </Card>
                 
-                <Card className="glass-card">
-                  <CardHeader>
-                    <CardTitle className="text-neon-pink">Study Calendar</CardTitle>
-                    <CardDescription>View all your scheduled sessions</CardDescription>
-                  </CardHeader>
-                  <CardContent className="p-4">
-                    {/* Calendar would normally go here, but for this example we'll use a placeholder */}
-                    <div className="bg-white/5 rounded-lg border border-white/10 h-80 flex items-center justify-center">
-                      <p className="text-gray-400">Calendar view would be displayed here</p>
-                    </div>
-                  </CardContent>
-                </Card>
+                {/* Study Calendar Component */}
+                <StudyCalendar />
               </div>
               
               <div>
@@ -319,7 +309,7 @@ const Scheduling = () => {
                       </div>
                       
                       <Button type="submit" className="w-full bg-gradient-to-r from-neon-green to-neon-cyan text-white">
-                        <Calendar className="mr-2 h-4 w-4" />
+                        <CalendarIcon className="mr-2 h-4 w-4" />
                         Schedule Session
                       </Button>
                     </form>

@@ -1,10 +1,11 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Mic, MicOff, Video, VideoOff, ScreenShare, PhoneOff, MessageSquare } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { toast } from "sonner";
+import DistractionDetector from './DistractionDetector';
 
 interface VideoConferenceProps {
   open: boolean;
@@ -23,6 +24,8 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
   const [micEnabled, setMicEnabled] = useState<boolean>(true);
   const [videoEnabled, setVideoEnabled] = useState<boolean>(true);
   const [permissionStatus, setPermissionStatus] = useState<'pending' | 'granted' | 'denied'>('pending');
+  const [distractionDetectionEnabled, setDistractionDetectionEnabled] = useState<boolean>(true);
+  const videoRef = useRef<HTMLVideoElement>(null);
   
   // Initialize webcam and microphone when dialog opens
   useEffect(() => {
@@ -36,6 +39,13 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
       }
     }
   }, [open]);
+  
+  useEffect(() => {
+    // Set video element's srcObject when localStream changes
+    if (videoRef.current && localStream) {
+      videoRef.current.srcObject = localStream;
+    }
+  }, [localStream]);
   
   const initializeMedia = async () => {
     try {
@@ -92,6 +102,14 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
     toast.info("Screen sharing is not implemented in this demo");
   };
   
+  const toggleDistractionDetection = () => {
+    setDistractionDetectionEnabled(prev => !prev);
+    toast.info(distractionDetectionEnabled ? 
+      "Distraction detection disabled" : 
+      "Distraction detection enabled"
+    );
+  };
+  
   // Retry accessing media if permissions were denied
   const handleRetryPermissions = () => {
     initializeMedia();
@@ -133,12 +151,7 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
                 <div className="relative bg-black/40 rounded-lg h-80 overflow-hidden">
                   {localStream && videoEnabled ? (
                     <video 
-                      ref={(videoEl) => {
-                        if (videoEl && localStream) {
-                          videoEl.srcObject = localStream;
-                          videoEl.play().catch(e => console.error("Error playing video:", e));
-                        }
-                      }}
+                      ref={videoRef}
                       autoPlay
                       muted
                       className="w-full h-full object-cover"
@@ -155,6 +168,28 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
                   <div className="absolute bottom-3 left-3 bg-black/40 text-white text-sm px-2 py-1 rounded">
                     You {!micEnabled && "(Muted)"}
                   </div>
+                  
+                  {/* Distraction detection toggle */}
+                  <div className="absolute top-3 right-3">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className={`text-xs ${
+                        distractionDetectionEnabled 
+                          ? 'bg-neon-green/20 border-neon-green text-neon-green hover:bg-neon-green/30'
+                          : 'bg-gray-500/20 border-gray-500 text-gray-400 hover:bg-gray-500/30'
+                      }`}
+                      onClick={toggleDistractionDetection}
+                    >
+                      {distractionDetectionEnabled ? 'Focus Monitor: ON' : 'Focus Monitor: OFF'}
+                    </Button>
+                  </div>
+                  
+                  {/* Distraction detection component */}
+                  <DistractionDetector 
+                    videoStreamRef={videoRef}
+                    isActive={open && permissionStatus === 'granted' && videoEnabled && distractionDetectionEnabled}
+                  />
                 </div>
               </div>
               
