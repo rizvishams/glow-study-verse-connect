@@ -6,33 +6,37 @@ export const downloadFaceModels = async () => {
   const modelUrls = [
     'https://github.com/justadudewhohacks/face-api.js/raw/master/weights/tiny_face_detector_model-weights_manifest.json',
     'https://github.com/justadudewhohacks/face-api.js/raw/master/weights/tiny_face_detector_model-shard1',
+    // Adding additional model files that might be needed
+    'https://github.com/justadudewhohacks/face-api.js/raw/master/weights/face_landmark_68_model-weights_manifest.json',
+    'https://github.com/justadudewhohacks/face-api.js/raw/master/weights/face_landmark_68_model-shard1',
+    'https://github.com/justadudewhohacks/face-api.js/raw/master/weights/face_recognition_model-weights_manifest.json',
+    'https://github.com/justadudewhohacks/face-api.js/raw/master/weights/face_recognition_model-shard1',
+    'https://github.com/justadudewhohacks/face-api.js/raw/master/weights/face_recognition_model-shard2',
   ];
   
   try {
-    // Create models directory in public folder if needed
-    const publicPath = '/models';
+    // Load JSZip if needed
+    await loadJSZip();
     
-    // Check if models directory exists
-    const directoryExists = await fetch(publicPath, { method: 'HEAD' })
-      .then(() => true)
-      .catch(() => false);
+    toast.info("Downloading face detection models...");
     
-    if (!directoryExists) {
-      toast.info("Downloading face detection models...");
-      
-      // Create a zip file with models for download
-      const zip = new (window as any).JSZip();
-      const modelsFolder = zip.folder("models");
-      
-      // Download each model file
-      const downloadPromises = modelUrls.map(async (url) => {
-        const fileName = url.split('/').pop() as string;
-        const response = await fetch(url);
-        const blob = await response.blob();
-        modelsFolder.file(fileName, blob);
-        return fileName;
-      });
-      
+    // Create a zip file with models for download
+    const zip = new (window as any).JSZip();
+    const modelsFolder = zip.folder("models");
+    
+    // Download each model file
+    const downloadPromises = modelUrls.map(async (url) => {
+      const fileName = url.split('/').pop() as string;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to download model file: ${fileName}`);
+      }
+      const blob = await response.blob();
+      modelsFolder?.file(fileName, blob);
+      return fileName;
+    });
+    
+    try {
       // Wait for all downloads to complete
       await Promise.all(downloadPromises);
       
@@ -42,13 +46,20 @@ export const downloadFaceModels = async () => {
       downloadLink.href = URL.createObjectURL(content);
       downloadLink.download = "face-models.zip";
       
-      toast.success("Models downloaded. Please unzip and place in your 'public/models' folder.");
+      toast.success("Models downloaded. Please follow these steps:", {
+        description: "1. Extract the ZIP file\n2. Place the 'models' folder in your 'public' directory\n3. Reload the app",
+        duration: 10000,
+      });
       
       // Trigger download
       downloadLink.click();
+      return true;
+    } catch (error) {
+      console.error("Error processing downloads:", error);
+      toast.error("Failed to download face detection models");
+      return false;
     }
     
-    return true;
   } catch (error) {
     console.error("Error downloading face detection models:", error);
     toast.error("Failed to download face detection models");
