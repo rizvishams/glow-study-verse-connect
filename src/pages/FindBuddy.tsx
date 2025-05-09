@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { SidebarProvider } from "@/components/ui/sidebar";
 import DashboardSidebar from '@/components/DashboardSidebar';
@@ -11,6 +10,9 @@ import { toast } from "sonner";
 import { Link, useNavigate } from 'react-router-dom';
 import AIStudyBuddy from '@/components/AIStudyBuddy';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import VideoConference from '@/components/VideoConference';
+import { database } from '@/utils/firebaseConfig';
+import { ref, set, onValue, get } from 'firebase/database';
 
 const FindBuddy = () => {
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
@@ -18,8 +20,11 @@ const FindBuddy = () => {
   const [availability, setAvailability] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
+  const [videoConferenceOpen, setVideoConferenceOpen] = useState(false);
   const [connectedBuddyId, setConnectedBuddyId] = useState<number | null>(null);
   const [connectingToId, setConnectingToId] = useState<number | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | undefined>(undefined);
+  const [availableSessions, setAvailableSessions] = useState<any[]>([]);
   const navigate = useNavigate();
 
   const subjects = [
@@ -103,6 +108,33 @@ const FindBuddy = () => {
     };
   }, [isSearching, connectedBuddyId]);
 
+  // Listen for active study sessions
+  useEffect(() => {
+    const sessionsRef = ref(database, 'sessions');
+    
+    // Setup Firebase listener for active sessions
+    const unsubscribe = onValue(sessionsRef, (snapshot) => {
+      const sessions = snapshot.val();
+      if (sessions) {
+        const activeSessions = Object.entries(sessions).map(([id, data]: [string, any]) => {
+          return {
+            id,
+            ...data.metadata
+          };
+        }).filter(session => session.isActive);
+        
+        setAvailableSessions(activeSessions);
+      } else {
+        setAvailableSessions([]);
+      }
+    });
+    
+    return () => {
+      // Clean up listener
+      unsubscribe();
+    };
+  }, []);
+
   const handleSubjectToggle = (subject: string) => {
     if (selectedSubjects.includes(subject)) {
       setSelectedSubjects(selectedSubjects.filter(s => s !== subject));
@@ -112,14 +144,29 @@ const FindBuddy = () => {
   };
 
   const handleFindMatches = () => {
-    // In a real app, this would send the query to a backend
-    console.log('Finding matches with: ', {
-      subjects: selectedSubjects,
-      studyStyle: selectedStudyStyle,
-      availability: availability
-    });
-    setIsSearching(true);
-    toast.success("Searching for study buddies...");
+    // Check for active sessions in Firebase matching the criteria
+    const findMatchingSessions = async () => {
+      try {
+        setIsSearching(true);
+        toast.success("Searching for study buddies...");
+        
+        // In a real app, we would filter sessions by subject, study style, etc.
+        // For this demo, just show all active sessions or suggest AI buddy if none
+        if (availableSessions.length > 0) {
+          // Found some sessions, display them in the UI
+          toast.success(`Found ${availableSessions.length} active study sessions!`);
+        } else {
+          // No sessions found, offer to create a new one
+          toast.info("No active study sessions found. Creating a new session for others to join.");
+          setVideoConferenceOpen(true);
+        }
+      } catch (error) {
+        console.error("Error finding matches:", error);
+        toast.error("Error finding study buddies");
+      }
+    };
+
+    findMatchingSessions();
   };
 
   const handleConnectRequest = (buddyId: number) => {
@@ -134,20 +181,19 @@ const FindBuddy = () => {
         setConnectedBuddyId(buddyId);
         toast.success(`${potentialBuddies.find(b => b.id === buddyId)?.name} accepted your request!`);
         
-        // Redirect to messages page after a short delay
-        setTimeout(() => {
-          navigate('/messages', { 
-            state: { 
-              buddy: potentialBuddies.find(b => b.id === buddyId),
-              subject: selectedSubjects.length > 0 ? selectedSubjects[0] : 'general studies'
-            } 
-          });
-        }, 1500);
+        // Open video conference instead of redirecting
+        setVideoConferenceOpen(true);
       } else {
         setConnectingToId(null);
         toast.error(`${potentialBuddies.find(b => b.id === buddyId)?.name} is not available right now.`);
       }
     }, 2000);
+  };
+
+  const handleSessionConnect = (sessionId: string) => {
+    setActiveSessionId(sessionId);
+    setVideoConferenceOpen(true);
+    toast.success("Connecting to study session...");
   };
 
   const handleAIConnect = () => {
@@ -157,6 +203,11 @@ const FindBuddy = () => {
         subject: selectedSubjects.length > 0 ? selectedSubjects[0] : 'general studies'
       } 
     });
+  };
+
+  const handleVideoConferenceClose = () => {
+    setVideoConferenceOpen(false);
+    setActiveSessionId(undefined);
   };
 
   return (
@@ -277,6 +328,38 @@ const FindBuddy = () => {
               </div>
               
               <div className="lg:col-span-2">
+                {/* Active Sessions */}
+                {availableSessions.length > 0 && (
+                  <>
+                    <h2 className="text-xl font-bold text-white mb-4">Active Study Sessions</h2>
+                    <div className="space-y-4 mb-8">
+                      {availableSessions.map((session) => (
+                        <Card key={session.id} className="glass-card hover:border-neon-cyan transition-all">
+                          <CardContent className="p-6">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h3 className="font-medium text-white text-lg">Live Study Session</h3>
+                                <p className="text-gray-300">Subject: {session.subject || 'General Study'}</p>
+                                <p className="text-xs text-gray-400">
+                                  Started {new Date(session.created).toLocaleTimeString()}
+                                </p>
+                              </div>
+                              
+                              <Button
+                                className="bg-neon-cyan text-background"
+                                onClick={() => handleSessionConnect(session.id)}
+                              >
+                                Join Session
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  </>
+                )}
+                
+                {/* Potential Buddies */}
                 <h2 className="text-xl font-bold text-white mb-4">Potential Study Buddies</h2>
                 <div className="space-y-4">
                   {potentialBuddies.map(buddy => (
@@ -380,6 +463,20 @@ const FindBuddy = () => {
               </div>
             </DialogContent>
           </Dialog>
+          
+          {/* Video Conference */}
+          <VideoConference 
+            open={videoConferenceOpen}
+            onClose={handleVideoConferenceClose}
+            sessionData={{
+              subject: selectedSubjects.length > 0 ? selectedSubjects[0] : 'General Study',
+              date: new Date().toLocaleDateString(),
+              time: new Date().toLocaleTimeString(),
+              duration: '1',
+              buddies: []
+            }}
+            sessionId={activeSessionId}
+          />
         </div>
       </div>
     </SidebarProvider>

@@ -38,116 +38,6 @@ const loadFaceDetectionScript = async () => {
   });
 };
 
-// Check if models are available
-const checkModelsAvailable = async () => {
-  try {
-    // First check if models exist in public directory
-    const response = await fetch('/models/tiny_face_detector_model-weights_manifest.json', {
-      method: 'HEAD'
-    });
-    return response.ok;
-  } catch (error) {
-    console.warn("Could not verify face detection models:", error);
-    return false;
-  }
-};
-
-// Initialize face detection models with multiple fallbacks
-const initializeFaceDetection = async () => {
-  try {
-    if (modelLoadAttempted) {
-      return faceDetectionModel !== null;
-    }
-    
-    modelLoadAttempted = true;
-    
-    // Load face-api.js script with better error handling
-    try {
-      await loadFaceDetectionScript();
-      console.log("Face API script loaded");
-    } catch (error) {
-      console.error("Face API script loading failed:", error);
-      usingFallbackDetection = true;
-      faceDetectionModel = true; // Just a placeholder for fallback
-      return true;
-    }
-    
-    const faceapi = (window as any).faceapi;
-    
-    if (!faceapi) {
-      console.error("Face API not loaded properly");
-      usingFallbackDetection = true;
-      faceDetectionModel = true;
-      return true;
-    }
-    
-    // Check if models are available locally
-    const modelsAvailable = await checkModelsAvailable();
-    
-    if (!modelsAvailable) {
-      console.warn("Face detection models not found in /models directory");
-      
-      // Try loading from CDN
-      try {
-        console.log("Loading face detection models from CDN");
-        await faceapi.nets.tinyFaceDetector.loadFromUri('https://justadudewhohacks.github.io/face-api.js/models');
-        console.log("Face detection models loaded from CDN");
-        faceDetectionModel = faceapi.nets.tinyFaceDetector;
-        return true;
-      } catch (cdnError) {
-        console.error("Error loading face detection models from CDN:", cdnError);
-        
-        // Final fallback - try another CDN
-        try {
-          console.log("Attempting to load from alternative CDN");
-          await faceapi.nets.tinyFaceDetector.loadFromUri('https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights');
-          console.log("Face detection models loaded from alternative CDN");
-          faceDetectionModel = faceapi.nets.tinyFaceDetector;
-          return true;
-        } catch (finalError) {
-          console.error("All model loading attempts failed:", finalError);
-          // Switch to fallback detection
-          usingFallbackDetection = true;
-          faceDetectionModel = true; // Just a placeholder for fallback
-          return true;
-        }
-      }
-    }
-    
-    // Try to load models from the public path
-    try {
-      console.log("Loading face detection models from /models directory");
-      await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
-      console.log("Face detection models loaded successfully");
-      faceDetectionModel = faceapi.nets.tinyFaceDetector;
-      return true;
-    } catch (error) {
-      console.error("Error loading face detection models from /models:", error);
-      
-      // Try loading from CDN as fallback
-      try {
-        console.log("Attempting to load models from CDN");
-        await faceapi.nets.tinyFaceDetector.loadFromUri('https://justadudewhohacks.github.io/face-api.js/models');
-        console.log("Face detection models loaded successfully from CDN");
-        faceDetectionModel = faceapi.nets.tinyFaceDetector;
-        return true;
-      } catch (cdnError) {
-        console.error("Error loading face detection models from CDN:", cdnError);
-        // Switch to fallback detection
-        usingFallbackDetection = true;
-        faceDetectionModel = true; // Just a placeholder for fallback
-        return true;
-      }
-    }
-  } catch (error) {
-    console.error("Error initializing face detection:", error);
-    // Switch to fallback detection
-    usingFallbackDetection = true;
-    faceDetectionModel = true; // Just a placeholder for fallback
-    return true;
-  }
-};
-
 // Enhanced fallback detection based on pixel difference
 const fallbackDetection = (videoElement: HTMLVideoElement) => {
   if (!videoElement || videoElement.paused || videoElement.ended) {
@@ -226,6 +116,69 @@ const analyzePixelVariation = (data: Uint8ClampedArray) => {
   return (variationCount / (data.length / 64)) > 0.1;
 };
 
+// Initialize face detection models with multiple fallbacks
+const initializeFaceDetection = async () => {
+  try {
+    if (modelLoadAttempted) {
+      return faceDetectionModel !== null;
+    }
+    
+    modelLoadAttempted = true;
+    
+    // Load face-api.js script with better error handling
+    try {
+      await loadFaceDetectionScript();
+      console.log("Face API script loaded");
+    } catch (error) {
+      console.error("Face API script loading failed:", error);
+      usingFallbackDetection = true;
+      faceDetectionModel = true; // Just a placeholder for fallback
+      return true;
+    }
+    
+    const faceapi = (window as any).faceapi;
+    
+    if (!faceapi) {
+      console.error("Face API not loaded properly");
+      usingFallbackDetection = true;
+      faceDetectionModel = true;
+      return true;
+    }
+    
+    // Try loading from CDN
+    try {
+      console.log("Loading face detection models from CDN");
+      await faceapi.nets.tinyFaceDetector.loadFromUri('https://justadudewhohacks.github.io/face-api.js/models');
+      console.log("Face detection models loaded from CDN");
+      faceDetectionModel = faceapi.nets.tinyFaceDetector;
+      return true;
+    } catch (cdnError) {
+      console.error("Error loading face detection models from CDN:", cdnError);
+      
+      // Final fallback - try another CDN
+      try {
+        console.log("Attempting to load from alternative CDN");
+        await faceapi.nets.tinyFaceDetector.loadFromUri('https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights');
+        console.log("Face detection models loaded from alternative CDN");
+        faceDetectionModel = faceapi.nets.tinyFaceDetector;
+        return true;
+      } catch (finalError) {
+        console.error("All model loading attempts failed:", finalError);
+        // Switch to fallback detection
+        usingFallbackDetection = true;
+        faceDetectionModel = true; // Just a placeholder for fallback
+        return true;
+      }
+    }
+  } catch (error) {
+    console.error("Error initializing face detection:", error);
+    // Switch to fallback detection
+    usingFallbackDetection = true;
+    faceDetectionModel = true; // Just a placeholder for fallback
+    return true;
+  }
+};
+
 // Start face detection with enhanced reliability
 export const startFaceDetection = async ({
   videoElement,
@@ -288,6 +241,17 @@ export const startFaceDetection = async ({
         // No face detected for longer than threshold
         distracted = true;
         onDistracted();
+        
+        // Show visible distraction alert
+        const distractionAlert = document.getElementById('distraction-alert');
+        if (distractionAlert) {
+          distractionAlert.classList.remove('hidden');
+          setTimeout(() => {
+            if (distractionAlert && !distractionAlert.classList.contains('hidden')) {
+              distractionAlert.classList.add('hidden');
+            }
+          }, 10000); // Hide after 10 seconds if not manually dismissed
+        }
       }
     } catch (error) {
       console.error("Face detection loop error:", error);

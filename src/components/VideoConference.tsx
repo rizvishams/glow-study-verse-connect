@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -7,6 +6,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { toast } from "sonner";
 import DistractionDetector from './DistractionDetector';
 import { useAuth } from '@/contexts/AuthContext';
+import { database } from '@/utils/firebaseConfig';
+import { ref, set, onValue, remove, off } from 'firebase/database';
 
 interface VideoConferenceProps {
   open: boolean;
@@ -18,6 +19,7 @@ interface VideoConferenceProps {
     duration: string;
     buddies: string[];
   } | null;
+  sessionId?: string;
 }
 
 // Generate a random session ID for connecting peers
@@ -25,7 +27,7 @@ const generateSessionId = () => {
   return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 };
 
-const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) => {
+const VideoConference = ({ open, onClose, sessionData, sessionId: providedSessionId }: VideoConferenceProps) => {
   const { user } = useAuth();
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -34,8 +36,8 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
   const [permissionStatus, setPermissionStatus] = useState<'pending' | 'granted' | 'denied'>('pending');
   const [distractionDetectionEnabled, setDistractionDetectionEnabled] = useState<boolean>(true);
   const [connectStatus, setConnectStatus] = useState<'waiting' | 'connecting' | 'connected'>('waiting');
-  const [sessionId, setSessionId] = useState<string>(generateSessionId());
-  const [isHost, setIsHost] = useState<boolean>(true);
+  const [sessionId, setSessionId] = useState<string>(providedSessionId || generateSessionId());
+  const [isHost, setIsHost] = useState<boolean>(!providedSessionId);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -52,6 +54,17 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
         { urls: 'stun:stun2.l.google.com:19302' },
         { urls: 'stun:stun3.l.google.com:19302' },
         { urls: 'stun:stun4.l.google.com:19302' },
+        // Added TURN servers for NAT traversal
+        {
+          urls: 'turn:global.turn.twilio.com:3478?transport=udp',
+          username: 'f4b4035eaa76f4a55de5f4351567653ee4ff6fa97b50b6b334fcc1be9c27212d',
+          credential: 'w1uxM55V9yVoqyVFjt+KsUcHxUzhuwwe5Jxbr6H21tA='
+        },
+        {
+          urls: 'turn:global.turn.twilio.com:3478?transport=tcp',
+          username: 'f4b4035eaa76f4a55de5f4351567653ee4ff6fa97b50b6b334fcc1be9c27212d',
+          credential: 'w1uxM55V9yVoqyVFjt+KsUcHxUzhuwwe5Jxbr6H21tA='
+        }
       ]
     };
     
@@ -92,16 +105,13 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
     pc.onicecandidate = event => {
       if (event.candidate) {
         console.log("New ICE candidate:", event.candidate);
-        // In a real app, you would send this to the signaling server
-        // For this demo, we'll simulate signaling through localStorage
-        const candidateData = {
-          sessionId: sessionId,
-          candidate: event.candidate,
-          type: 'ice-candidate',
-          fromHost: isHost
-        };
-        localStorage.setItem(`webrtc-candidate-${isHost ? 'host' : 'peer'}-${Date.now()}`, 
-          JSON.stringify(candidateData));
+        // Send ICE candidate to Firebase
+        const candidateRef = ref(database, `sessions/${sessionId}/candidates/${isHost ? 'host' : 'peer'}/${Date.now()}`);
+        set(candidateRef, {
+          type: 'candidate',
+          candidate: JSON.stringify(event.candidate),
+          timestamp: Date.now()
+        });
       }
     };
     
@@ -123,11 +133,85 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
   useEffect(() => {
     if (open) {
       initializeMedia();
+      
+      // Set up session in Firebase if host
+      if (isHost) {
+        const sessionRef = ref(database, `sessions/${sessionId}/metadata`);
+        set(sessionRef, {
+          created: Date.now(),
+          subject: sessionData?.subject || 'General Study',
+          isActive: true
+        });
+        
+        // Clean up session when host leaves
+        return () => {
+          if (isHost) {
+            remove(ref(database, `sessions/${sessionId}`));
+          }
+        };
+      }
     } else {
       // Clean up media when dialog closes
       cleanupConnection();
     }
-  }, [open]);
+  }, [open, isHost, sessionId]);
+  
+  // Listen for signaling messages from Firebase
+  useEffect(() => {
+    if (!open || !sessionId) return;
+    
+    // Set up listeners for offers, answers, and candidates
+    const offersRef = ref(database, `sessions/${sessionId}/offers`);
+    const answersRef = ref(database, `sessions/${sessionId}/answers`);
+    const hostCandidatesRef = ref(database, `sessions/${sessionId}/candidates/host`);
+    const peerCandidatesRef = ref(database, `sessions/${sessionId}/candidates/peer`);
+    
+    // Listen for offers (if peer)
+    if (!isHost) {
+      onValue(offersRef, (snapshot) => {
+        const offerData = snapshot.val();
+        if (offerData) {
+          console.log("Received offer from Firebase");
+          Object.values(offerData).forEach((offer: any) => {
+            handleOffer(JSON.parse(offer.sdp));
+          });
+        }
+      });
+    }
+    
+    // Listen for answers (if host)
+    if (isHost) {
+      onValue(answersRef, (snapshot) => {
+        const answerData = snapshot.val();
+        if (answerData) {
+          console.log("Received answer from Firebase");
+          Object.values(answerData).forEach((answer: any) => {
+            handleAnswer(JSON.parse(answer.sdp));
+          });
+        }
+      });
+    }
+    
+    // Listen for ICE candidates
+    const candidatesRef = isHost ? peerCandidatesRef : hostCandidatesRef;
+    onValue(candidatesRef, (snapshot) => {
+      const candidateData = snapshot.val();
+      if (candidateData) {
+        console.log("Received ICE candidates from Firebase");
+        Object.values(candidateData).forEach((data: any) => {
+          handleIceCandidate(JSON.parse(data.candidate));
+        });
+      }
+    });
+    
+    return () => {
+      // Clean up Firebase listeners
+      off(offersRef);
+      off(answersRef);
+      off(hostCandidatesRef);
+      off(peerCandidatesRef);
+    };
+  }, [open, sessionId, isHost]);
   
   // Cleanup function for connections
   const cleanupConnection = () => {
@@ -150,53 +234,13 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
       remoteStream.getTracks().forEach(track => track.stop());
       setRemoteStream(null);
     }
+    
+    // Remove session from Firebase if host
+    if (isHost) {
+      remove(ref(database, `sessions/${sessionId}`))
+        .catch(err => console.error("Error removing session:", err));
+    }
   };
-  
-  // Handle signaling through localStorage (simulated signaling server)
-  useEffect(() => {
-    if (!open || !sessionId) return;
-    
-    // Listen for signaling messages
-    const checkInterval = setInterval(() => {
-      // Check for all stored messages
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        
-        // Skip non-WebRTC keys
-        if (!key || !key.startsWith('webrtc-')) continue;
-        
-        try {
-          const data = JSON.parse(localStorage.getItem(key) || '{}');
-          
-          // Skip messages not for this session
-          if (data.sessionId !== sessionId) continue;
-          
-          // Skip messages from self
-          if ((isHost && data.fromHost) || (!isHost && !data.fromHost)) continue;
-          
-          console.log("Processing signaling message:", data.type);
-          
-          // Handle different message types
-          if (data.type === 'offer' && !isHost) {
-            handleOffer(data.offer);
-          } else if (data.type === 'answer' && isHost) {
-            handleAnswer(data.answer);
-          } else if (data.type === 'ice-candidate') {
-            handleIceCandidate(data.candidate);
-          }
-          
-          // Remove processed message
-          localStorage.removeItem(key);
-        } catch (error) {
-          console.error("Error processing signaling message:", error);
-        }
-      }
-    }, 1000);
-    
-    return () => {
-      clearInterval(checkInterval);
-    };
-  }, [open, sessionId, isHost]);
   
   // Handle incoming offer
   const handleOffer = async (offer: RTCSessionDescriptionInit) => {
@@ -212,13 +256,13 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       
-      // Send answer
-      localStorage.setItem(`webrtc-answer-${Date.now()}`, JSON.stringify({
-        sessionId,
+      // Send answer to Firebase
+      const answerRef = ref(database, `sessions/${sessionId}/answers/${Date.now()}`);
+      set(answerRef, {
         type: 'answer',
-        answer,
-        fromHost: isHost
-      }));
+        sdp: JSON.stringify(answer),
+        timestamp: Date.now()
+      });
       
     } catch (error) {
       console.error("Error handling offer:", error);
@@ -258,13 +302,13 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       
-      // Send offer through simulated signaling
-      localStorage.setItem(`webrtc-offer-${Date.now()}`, JSON.stringify({
-        sessionId,
+      // Send offer to Firebase
+      const offerRef = ref(database, `sessions/${sessionId}/offers/${Date.now()}`);
+      set(offerRef, {
         type: 'offer',
-        offer,
-        fromHost: isHost
-      }));
+        sdp: JSON.stringify(offer),
+        timestamp: Date.now()
+      });
       
     } catch (error) {
       console.error("Error creating offer:", error);
@@ -463,6 +507,29 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
             )}
           </DialogDescription>
         </DialogHeader>
+        
+        {/* Distraction Alert */}
+        <div id="distraction-alert" className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 bg-red-600/90 border-2 border-red-400 rounded-lg p-6 shadow-[0_0_30px_rgba(239,68,68,0.7)] hidden animate-pulse">
+          <div className="flex flex-col items-center text-center">
+            <div className="mb-4 text-white">
+              <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+            </div>
+            <h3 className="text-2xl font-bold text-white mb-2">Focus Lost!</h3>
+            <p className="text-white text-lg mb-4">Please return to your study session.</p>
+            <button 
+              className="px-4 py-2 bg-white text-red-600 font-medium rounded hover:bg-gray-100"
+              onClick={() => {
+                document.getElementById('distraction-alert')?.classList.add('hidden');
+              }}
+            >
+              I'm Back
+            </button>
+          </div>
+        </div>
         
         {permissionStatus === 'denied' ? (
           <div className="p-10 text-center">
