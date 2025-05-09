@@ -20,6 +20,11 @@ interface VideoConferenceProps {
   } | null;
 }
 
+// Generate a random session ID for connecting peers
+const generateSessionId = () => {
+  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+};
+
 const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) => {
   const { user } = useAuth();
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -29,8 +34,90 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
   const [permissionStatus, setPermissionStatus] = useState<'pending' | 'granted' | 'denied'>('pending');
   const [distractionDetectionEnabled, setDistractionDetectionEnabled] = useState<boolean>(true);
   const [connectStatus, setConnectStatus] = useState<'waiting' | 'connecting' | 'connected'>('waiting');
+  const [sessionId, setSessionId] = useState<string>(generateSessionId());
+  const [isHost, setIsHost] = useState<boolean>(true);
+  
   const videoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const dataChannelRef = useRef<RTCDataChannel | null>(null);
+  
+  // Initialize WebRTC
+  const initializeWebRTC = () => {
+    // Create a new peer connection
+    const config = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' },
+      ]
+    };
+    
+    const pc = new RTCPeerConnection(config);
+    peerConnectionRef.current = pc;
+    
+    // Add local stream tracks to the connection
+    if (localStream) {
+      localStream.getTracks().forEach(track => {
+        pc.addTrack(track, localStream);
+      });
+    }
+    
+    // Set up handlers for remote stream
+    pc.ontrack = event => {
+      console.log("Received remote track", event.streams[0]);
+      setRemoteStream(event.streams[0]);
+    };
+    
+    // Set up data channel for messaging
+    if (isHost) {
+      const dataChannel = pc.createDataChannel("chat");
+      dataChannel.onopen = () => console.log("Data channel opened");
+      dataChannel.onclose = () => console.log("Data channel closed");
+      dataChannel.onmessage = e => console.log("Received message:", e.data);
+      dataChannelRef.current = dataChannel;
+    } else {
+      pc.ondatachannel = event => {
+        const dataChannel = event.channel;
+        dataChannel.onopen = () => console.log("Data channel opened");
+        dataChannel.onclose = () => console.log("Data channel closed");
+        dataChannel.onmessage = e => console.log("Received message:", e.data);
+        dataChannelRef.current = dataChannel;
+      };
+    }
+    
+    // ICE candidate handling
+    pc.onicecandidate = event => {
+      if (event.candidate) {
+        console.log("New ICE candidate:", event.candidate);
+        // In a real app, you would send this to the signaling server
+        // For this demo, we'll simulate signaling through localStorage
+        const candidateData = {
+          sessionId: sessionId,
+          candidate: event.candidate,
+          type: 'ice-candidate',
+          fromHost: isHost
+        };
+        localStorage.setItem(`webrtc-candidate-${isHost ? 'host' : 'peer'}-${Date.now()}`, 
+          JSON.stringify(candidateData));
+      }
+    };
+    
+    // Connection state change
+    pc.onconnectionstatechange = () => {
+      console.log("Connection state:", pc.connectionState);
+      if (pc.connectionState === 'connected') {
+        setConnectStatus('connected');
+        toast.success("Connected with study buddy!");
+      } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+        toast.error("Connection lost with study buddy");
+      }
+    };
+    
+    return pc;
+  };
   
   // Initialize webcam and microphone when dialog opens
   useEffect(() => {
@@ -38,20 +125,158 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
       initializeMedia();
     } else {
       // Clean up media when dialog closes
-      if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-        setLocalStream(null);
-      }
+      cleanupConnection();
     }
   }, [open]);
   
+  // Cleanup function for connections
+  const cleanupConnection = () => {
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
+    }
+    
+    if (dataChannelRef.current) {
+      dataChannelRef.current.close();
+      dataChannelRef.current = null;
+    }
+    
+    if (localStream) {
+      localStream.getTracks().forEach(track => track.stop());
+      setLocalStream(null);
+    }
+    
+    if (remoteStream) {
+      remoteStream.getTracks().forEach(track => track.stop());
+      setRemoteStream(null);
+    }
+  };
+  
+  // Handle signaling through localStorage (simulated signaling server)
   useEffect(() => {
-    // Set video element's srcObject when localStream changes
+    if (!open || !sessionId) return;
+    
+    // Listen for signaling messages
+    const checkInterval = setInterval(() => {
+      // Check for all stored messages
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        
+        // Skip non-WebRTC keys
+        if (!key || !key.startsWith('webrtc-')) continue;
+        
+        try {
+          const data = JSON.parse(localStorage.getItem(key) || '{}');
+          
+          // Skip messages not for this session
+          if (data.sessionId !== sessionId) continue;
+          
+          // Skip messages from self
+          if ((isHost && data.fromHost) || (!isHost && !data.fromHost)) continue;
+          
+          console.log("Processing signaling message:", data.type);
+          
+          // Handle different message types
+          if (data.type === 'offer' && !isHost) {
+            handleOffer(data.offer);
+          } else if (data.type === 'answer' && isHost) {
+            handleAnswer(data.answer);
+          } else if (data.type === 'ice-candidate') {
+            handleIceCandidate(data.candidate);
+          }
+          
+          // Remove processed message
+          localStorage.removeItem(key);
+        } catch (error) {
+          console.error("Error processing signaling message:", error);
+        }
+      }
+    }, 1000);
+    
+    return () => {
+      clearInterval(checkInterval);
+    };
+  }, [open, sessionId, isHost]);
+  
+  // Handle incoming offer
+  const handleOffer = async (offer: RTCSessionDescriptionInit) => {
+    if (!peerConnectionRef.current) {
+      initializeWebRTC();
+    }
+    
+    const pc = peerConnectionRef.current;
+    if (!pc) return;
+    
+    try {
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      
+      // Send answer
+      localStorage.setItem(`webrtc-answer-${Date.now()}`, JSON.stringify({
+        sessionId,
+        type: 'answer',
+        answer,
+        fromHost: isHost
+      }));
+      
+    } catch (error) {
+      console.error("Error handling offer:", error);
+    }
+  };
+  
+  // Handle incoming answer
+  const handleAnswer = async (answer: RTCSessionDescriptionInit) => {
+    const pc = peerConnectionRef.current;
+    if (!pc) return;
+    
+    try {
+      await pc.setRemoteDescription(new RTCSessionDescription(answer));
+    } catch (error) {
+      console.error("Error handling answer:", error);
+    }
+  };
+  
+  // Handle ICE candidate
+  const handleIceCandidate = async (candidate: RTCIceCandidateInit) => {
+    const pc = peerConnectionRef.current;
+    if (!pc) return;
+    
+    try {
+      await pc.addIceCandidate(new RTCIceCandidate(candidate));
+    } catch (error) {
+      console.error("Error adding ICE candidate:", error);
+    }
+  };
+  
+  // Create and send offer (for host)
+  const createOffer = async () => {
+    const pc = peerConnectionRef.current;
+    if (!pc) return;
+    
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      
+      // Send offer through simulated signaling
+      localStorage.setItem(`webrtc-offer-${Date.now()}`, JSON.stringify({
+        sessionId,
+        type: 'offer',
+        offer,
+        fromHost: isHost
+      }));
+      
+    } catch (error) {
+      console.error("Error creating offer:", error);
+    }
+  };
+  
+  // Set video element's srcObject when streams change
+  useEffect(() => {
     if (videoRef.current && localStream) {
       videoRef.current.srcObject = localStream;
     }
     
-    // Set remote video element's srcObject when remoteStream changes
     if (remoteVideoRef.current && remoteStream) {
       remoteVideoRef.current.srcObject = remoteStream;
     }
@@ -68,8 +293,21 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
       setPermissionStatus('granted');
       toast.success("Connected to camera and microphone");
       
-      // Simulate connecting to a peer after a delay
-      simulatePeerConnection();
+      // Initialize WebRTC and start connecting
+      const pc = initializeWebRTC();
+      setConnectStatus('waiting');
+      
+      // If host, create offer after a short delay
+      if (isHost) {
+        setTimeout(() => {
+          setConnectStatus('connecting');
+          toast.info("Finding a study buddy...");
+          createOffer();
+        }, 1500);
+      } else {
+        setConnectStatus('connecting');
+        toast.info("Connecting to study session...");
+      }
       
     } catch (error) {
       console.error("Error accessing media devices:", error);
@@ -78,27 +316,19 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
     }
   };
   
-  // Simulate connecting to a remote peer
-  const simulatePeerConnection = () => {
-    setConnectStatus('waiting');
+  // Helper function to join an existing session
+  const joinExistingSession = (newSessionId: string) => {
+    setSessionId(newSessionId);
+    setIsHost(false);
     
-    // Simulate searching for a peer
-    setTimeout(() => {
+    if (permissionStatus === 'granted') {
+      // Already have media, just initialize WebRTC
+      initializeWebRTC();
       setConnectStatus('connecting');
-      toast.info("Finding a study buddy...");
-      
-      // Simulate connection established
-      setTimeout(() => {
-        // Create a simulated remote stream (in a real app, this would come from WebRTC)
-        if (localStream) {
-          // For demo, we'll just use our own stream as the remote one
-          // In a real app, this would be from the peer connection
-          setRemoteStream(localStream);
-          setConnectStatus('connected');
-          toast.success("Connected with study buddy!");
-        }
-      }, 3000);
-    }, 2000);
+    } else {
+      // Need to get media first
+      initializeMedia();
+    }
   };
   
   const toggleMic = () => {
@@ -126,17 +356,58 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
   };
   
   const handleEndCall = () => {
-    if (localStream) {
-      localStream.getTracks().forEach(track => track.stop());
-      setLocalStream(null);
-    }
+    cleanupConnection();
     toast.info("Study session ended");
     onClose();
   };
   
-  const handleScreenShare = () => {
-    // In a real implementation, this would use the Screen Capture API
-    toast.info("Screen sharing is not implemented in this demo");
+  const handleScreenShare = async () => {
+    try {
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({ 
+        video: true,
+        audio: true
+      });
+      
+      // Replace video track with screen sharing track
+      if (peerConnectionRef.current && localStream) {
+        const videoSender = peerConnectionRef.current.getSenders().find(
+          sender => sender.track?.kind === 'video'
+        );
+        
+        if (videoSender) {
+          videoSender.replaceTrack(screenStream.getVideoTracks()[0]);
+        }
+        
+        // Update local video with screen share
+        const newStream = new MediaStream();
+        screenStream.getVideoTracks().forEach(track => newStream.addTrack(track));
+        localStream.getAudioTracks().forEach(track => newStream.addTrack(track));
+        
+        setLocalStream(newStream);
+        
+        // Add listener to detect when screen sharing stops
+        screenStream.getVideoTracks()[0].onended = async () => {
+          // Revert to camera
+          const cameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
+          if (videoSender && cameraStream.getVideoTracks()[0]) {
+            videoSender.replaceTrack(cameraStream.getVideoTracks()[0]);
+          }
+          
+          // Update local stream
+          const revertedStream = new MediaStream();
+          cameraStream.getVideoTracks().forEach(track => revertedStream.addTrack(track));
+          localStream.getAudioTracks().forEach(track => revertedStream.addTrack(track));
+          setLocalStream(revertedStream);
+          
+          toast.info("Screen sharing ended");
+        };
+        
+        toast.success("Screen sharing started");
+      }
+    } catch (error) {
+      console.error("Error starting screen share:", error);
+      toast.error("Could not start screen sharing");
+    }
   };
   
   const toggleDistractionDetection = () => {
@@ -152,6 +423,20 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
     initializeMedia();
   };
   
+  // For testing: ability to join a specific session
+  const handleJoinSession = () => {
+    const sessionToJoin = prompt("Enter session ID to join:");
+    if (sessionToJoin) {
+      joinExistingSession(sessionToJoin);
+    }
+  };
+  
+  // Share session ID for others to join
+  const handleShareSession = () => {
+    navigator.clipboard.writeText(sessionId);
+    toast.success("Session ID copied to clipboard! Share with your study buddy.");
+  };
+  
   return (
     <Dialog open={open} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-auto glass-card p-0">
@@ -161,6 +446,21 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
           </DialogTitle>
           <DialogDescription className="text-gray-400">
             Video Conference Study Session
+            {isHost && (
+              <div className="mt-2">
+                <button 
+                  onClick={handleShareSession} 
+                  className="text-neon-cyan underline text-sm"
+                >
+                  Share this session (ID: {sessionId.substring(0, 8)}...)
+                </button>
+              </div>
+            )}
+            {!isHost && (
+              <div className="mt-2 text-sm">
+                Connected to session {sessionId.substring(0, 8)}...
+              </div>
+            )}
           </DialogDescription>
         </DialogHeader>
         
@@ -214,6 +514,12 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
                           <>
                             <div className="w-16 h-16 border-4 border-t-neon-cyan border-neon-cyan/30 rounded-full animate-spin mx-auto mb-4"></div>
                             <p className="text-white text-xl">Waiting for a study buddy...</p>
+                            <button 
+                              className="text-neon-cyan underline text-sm mt-4"
+                              onClick={handleJoinSession}
+                            >
+                              Join existing session
+                            </button>
                           </>
                         )}
                         
@@ -321,7 +627,7 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
               size="icon" 
               className="rounded-full w-12 h-12 bg-white/10"
               onClick={handleScreenShare}
-              disabled={permissionStatus !== 'granted'}
+              disabled={permissionStatus !== 'granted' || connectStatus !== 'connected'}
             >
               <ScreenShare className="h-5 w-5" />
             </Button>

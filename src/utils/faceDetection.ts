@@ -15,7 +15,7 @@ let detectionInterval: number | null = null;
 let modelLoadAttempted = false;
 let usingFallbackDetection = false;
 
-// Load face-api.js dynamically
+// Load face-api.js dynamically with better error handling
 const loadFaceDetectionScript = async () => {
   if (typeof (window as any).faceapi !== 'undefined') {
     return Promise.resolve();
@@ -25,6 +25,7 @@ const loadFaceDetectionScript = async () => {
     const script = document.createElement('script');
     script.src = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js';
     script.async = true;
+    script.crossOrigin = "anonymous"; // Add CORS support
     script.onload = () => {
       console.log("Face API script loaded successfully");
       resolve();
@@ -40,6 +41,7 @@ const loadFaceDetectionScript = async () => {
 // Check if models are available
 const checkModelsAvailable = async () => {
   try {
+    // First check if models exist in public directory
     const response = await fetch('/models/tiny_face_detector_model-weights_manifest.json', {
       method: 'HEAD'
     });
@@ -50,7 +52,7 @@ const checkModelsAvailable = async () => {
   }
 };
 
-// Initialize face detection models
+// Initialize face detection models with multiple fallbacks
 const initializeFaceDetection = async () => {
   try {
     if (modelLoadAttempted) {
@@ -59,24 +61,57 @@ const initializeFaceDetection = async () => {
     
     modelLoadAttempted = true;
     
-    // Load face-api.js script
-    await loadFaceDetectionScript();
+    // Load face-api.js script with better error handling
+    try {
+      await loadFaceDetectionScript();
+      console.log("Face API script loaded");
+    } catch (error) {
+      console.error("Face API script loading failed:", error);
+      usingFallbackDetection = true;
+      faceDetectionModel = true; // Just a placeholder for fallback
+      return true;
+    }
+    
     const faceapi = (window as any).faceapi;
     
     if (!faceapi) {
-      console.error("Face API not loaded");
-      return false;
+      console.error("Face API not loaded properly");
+      usingFallbackDetection = true;
+      faceDetectionModel = true;
+      return true;
     }
     
-    // Check if models are available
+    // Check if models are available locally
     const modelsAvailable = await checkModelsAvailable();
     
     if (!modelsAvailable) {
       console.warn("Face detection models not found in /models directory");
-      // Switch to fallback detection
-      usingFallbackDetection = true;
-      faceDetectionModel = true; // Just a placeholder to indicate we're using fallback
-      return true;
+      
+      // Try loading from CDN
+      try {
+        console.log("Loading face detection models from CDN");
+        await faceapi.nets.tinyFaceDetector.loadFromUri('https://justadudewhohacks.github.io/face-api.js/models');
+        console.log("Face detection models loaded from CDN");
+        faceDetectionModel = faceapi.nets.tinyFaceDetector;
+        return true;
+      } catch (cdnError) {
+        console.error("Error loading face detection models from CDN:", cdnError);
+        
+        // Final fallback - try another CDN
+        try {
+          console.log("Attempting to load from alternative CDN");
+          await faceapi.nets.tinyFaceDetector.loadFromUri('https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights');
+          console.log("Face detection models loaded from alternative CDN");
+          faceDetectionModel = faceapi.nets.tinyFaceDetector;
+          return true;
+        } catch (finalError) {
+          console.error("All model loading attempts failed:", finalError);
+          // Switch to fallback detection
+          usingFallbackDetection = true;
+          faceDetectionModel = true; // Just a placeholder for fallback
+          return true;
+        }
+      }
     }
     
     // Try to load models from the public path
@@ -91,7 +126,7 @@ const initializeFaceDetection = async () => {
       
       // Try loading from CDN as fallback
       try {
-        console.log("Attempting to load face detection models from CDN");
+        console.log("Attempting to load models from CDN");
         await faceapi.nets.tinyFaceDetector.loadFromUri('https://justadudewhohacks.github.io/face-api.js/models');
         console.log("Face detection models loaded successfully from CDN");
         faceDetectionModel = faceapi.nets.tinyFaceDetector;
@@ -100,7 +135,7 @@ const initializeFaceDetection = async () => {
         console.error("Error loading face detection models from CDN:", cdnError);
         // Switch to fallback detection
         usingFallbackDetection = true;
-        faceDetectionModel = true; // Just a placeholder to indicate we're using fallback
+        faceDetectionModel = true; // Just a placeholder for fallback
         return true;
       }
     }
@@ -108,12 +143,12 @@ const initializeFaceDetection = async () => {
     console.error("Error initializing face detection:", error);
     // Switch to fallback detection
     usingFallbackDetection = true;
-    faceDetectionModel = true; // Just a placeholder to indicate we're using fallback
+    faceDetectionModel = true; // Just a placeholder for fallback
     return true;
   }
 };
 
-// Fallback detection based on pixel difference
+// Enhanced fallback detection based on pixel difference
 const fallbackDetection = (videoElement: HTMLVideoElement) => {
   if (!videoElement || videoElement.paused || videoElement.ended) {
     return false;
@@ -131,28 +166,67 @@ const fallbackDetection = (videoElement: HTMLVideoElement) => {
     const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
     
-    // Check if there's significant variation in pixels (crude detection of a face)
-    // This checks if the frame isn't just a blank or static image
+    // More advanced pixel analysis (patterns consistent with faces)
     let variationCount = 0;
-    let lastPixel = data[0];
+    let centerBrightness = 0;
+    let edgeBrightness = 0;
     let totalPixels = data.length / 4;
     
-    for (let i = 0; i < data.length; i += 16) {
-      if (Math.abs(data[i] - lastPixel) > 20) {
-        variationCount++;
+    // Check center region (where face likely is)
+    const centerX = Math.floor(canvas.width / 2);
+    const centerY = Math.floor(canvas.height / 2);
+    const centerRadius = Math.floor(canvas.width / 4);
+    
+    // Sample center and edge regions
+    for (let y = 0; y < canvas.height; y++) {
+      for (let x = 0; x < canvas.width; x++) {
+        const idx = (y * canvas.width + x) * 4;
+        const brightness = (data[idx] + data[idx+1] + data[idx+2]) / 3;
+        
+        const distanceToCenter = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2));
+        
+        if (distanceToCenter < centerRadius) {
+          centerBrightness += brightness;
+        } else if (distanceToCenter > centerRadius * 1.8) {
+          edgeBrightness += brightness;
+        }
       }
-      lastPixel = data[i];
     }
     
-    // If there's enough variation, assume a face is present
-    return (variationCount / (totalPixels / 4)) > 0.1;
+    // Normalize by pixel count
+    centerBrightness /= (Math.PI * centerRadius * centerRadius);
+    edgeBrightness /= (totalPixels - Math.PI * centerRadius * centerRadius);
+    
+    // Feature 1: Center should typically be brighter than edges in a webcam with face
+    const brightnessRatio = centerBrightness / (edgeBrightness + 1);
+    
+    // Feature 2: Check for movement (frame difference)
+    const hasSignificantVariation = analyzePixelVariation(data);
+    
+    // Face-like detection heuristic
+    return (brightnessRatio > 1.05 && hasSignificantVariation);
   } catch (error) {
     console.error("Error in fallback detection:", error);
     return true; // Assume user is present rather than falsely triggering alerts
   }
 };
 
-// Start face detection
+// Helper function to analyze pixel variation
+const analyzePixelVariation = (data: Uint8ClampedArray) => {
+  let variationCount = 0;
+  let lastPixel = data[0];
+  
+  for (let i = 0; i < data.length; i += 16) {
+    if (Math.abs(data[i] - lastPixel) > 20) {
+      variationCount++;
+    }
+    lastPixel = data[i];
+  }
+  
+  return (variationCount / (data.length / 64)) > 0.1;
+};
+
+// Start face detection with enhanced reliability
 export const startFaceDetection = async ({
   videoElement,
   onDistracted,
@@ -174,23 +248,29 @@ export const startFaceDetection = async ({
   lastTimeWithFace = Date.now();
   distracted = false;
   
-  // Create detection loop
+  // Create detection loop with improved reliability
   detectionInterval = window.setInterval(async () => {
-    if (videoElement.paused || videoElement.ended) return;
+    if (!videoElement || videoElement.paused || videoElement.ended) return;
     
     try {
       let faceDetected = false;
       
       if (usingFallbackDetection) {
-        // Use our simple fallback detection
+        // Use enhanced fallback detection
         faceDetected = fallbackDetection(videoElement);
       } else if (faceapi) {
-        // Use face-api.js if available
-        const detections = await faceapi.detectAllFaces(
-          videoElement,
-          new faceapi.TinyFaceDetectorOptions()
-        );
-        faceDetected = detections && detections.length > 0;
+        // Use face-api.js with error handling
+        try {
+          const detections = await faceapi.detectAllFaces(
+            videoElement,
+            new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.3 })
+          );
+          faceDetected = detections && detections.length > 0;
+        } catch (detectionError) {
+          console.error("Face detection error:", detectionError);
+          // Fall back to simple detection
+          faceDetected = fallbackDetection(videoElement);
+        }
       }
       
       const now = Date.now();
@@ -210,8 +290,8 @@ export const startFaceDetection = async ({
         onDistracted();
       }
     } catch (error) {
-      console.error("Face detection error:", error);
-      // If detection throws an error, assume face is present rather than falsely triggering alerts
+      console.error("Face detection loop error:", error);
+      // If detection throws an error, assume face is present
       lastTimeWithFace = Date.now();
     }
   }, 1000); // Check every second
