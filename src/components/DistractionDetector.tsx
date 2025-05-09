@@ -1,6 +1,6 @@
 
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Bell } from 'lucide-react';
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { startFaceDetection, stopFaceDetection } from '@/utils/faceDetection';
@@ -103,6 +103,15 @@ const DistractionDetector: React.FC<DistractionDetectorProps> = ({ videoStreamRe
     toast.warning("Distraction detected", {
       description: "Try to stay focused on your study session",
       duration: 6000,
+      position: "top-center",
+      style: { 
+        backgroundColor: "rgba(249, 115, 22, 0.95)", 
+        color: "white",
+        fontWeight: "600",
+        fontSize: "1.05rem",
+        border: "2px solid #fbbf24"
+      },
+      icon: <Bell className="h-5 w-5 text-white animate-pulse" />
     });
     
     // Auto-clear distraction state after 8 seconds
@@ -173,18 +182,21 @@ const DistractionDetector: React.FC<DistractionDetectorProps> = ({ videoStreamRe
       )}
       
       {isDistracted && (
-        <Alert variant="destructive" className="fixed top-4 right-4 w-72 bg-red-900/80 border-red-700 backdrop-blur-sm animate-fade-in z-50">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Distraction Detected</AlertTitle>
-          <AlertDescription>
-            Try to stay focused on your study session.
-          </AlertDescription>
-        </Alert>
+        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 flex flex-col items-center">
+          <Alert variant="destructive" className="w-96 max-w-[90vw] bg-red-900/95 border-4 border-red-500 backdrop-blur-md animate-pulse shadow-xl shadow-red-900/30">
+            <AlertCircle className="h-6 w-6 text-red-300" />
+            <AlertTitle className="text-xl text-white font-bold">Distraction Detected!</AlertTitle>
+            <AlertDescription className="text-lg text-white/90">
+              Try to stay focused on your study session.
+            </AlertDescription>
+          </Alert>
+          <div className="bg-red-500 h-20 w-2 mt-6 animate-pulse rounded-full shadow-lg shadow-red-500/50"></div>
+        </div>
       )}
       
       {/* Pulsing border during distraction */}
       {isDistracted && (
-        <div className="absolute inset-0 border-4 border-red-500 rounded-lg animate-pulse pointer-events-none z-10"></div>
+        <div className="fixed inset-0 border-8 border-red-500 rounded-lg animate-pulse pointer-events-none z-10"></div>
       )}
     </>
   );
