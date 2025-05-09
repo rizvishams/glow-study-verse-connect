@@ -6,6 +6,7 @@ import { Mic, MicOff, Video, VideoOff, ScreenShare, PhoneOff, MessageSquare } fr
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { toast } from "sonner";
 import DistractionDetector from './DistractionDetector';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface VideoConferenceProps {
   open: boolean;
@@ -20,12 +21,16 @@ interface VideoConferenceProps {
 }
 
 const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) => {
+  const { user } = useAuth();
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [micEnabled, setMicEnabled] = useState<boolean>(true);
   const [videoEnabled, setVideoEnabled] = useState<boolean>(true);
   const [permissionStatus, setPermissionStatus] = useState<'pending' | 'granted' | 'denied'>('pending');
   const [distractionDetectionEnabled, setDistractionDetectionEnabled] = useState<boolean>(true);
+  const [connectStatus, setConnectStatus] = useState<'waiting' | 'connecting' | 'connected'>('waiting');
   const videoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
   
   // Initialize webcam and microphone when dialog opens
   useEffect(() => {
@@ -45,7 +50,12 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
     if (videoRef.current && localStream) {
       videoRef.current.srcObject = localStream;
     }
-  }, [localStream]);
+    
+    // Set remote video element's srcObject when remoteStream changes
+    if (remoteVideoRef.current && remoteStream) {
+      remoteVideoRef.current.srcObject = remoteStream;
+    }
+  }, [localStream, remoteStream]);
   
   const initializeMedia = async () => {
     try {
@@ -57,11 +67,38 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
       setLocalStream(stream);
       setPermissionStatus('granted');
       toast.success("Connected to camera and microphone");
+      
+      // Simulate connecting to a peer after a delay
+      simulatePeerConnection();
+      
     } catch (error) {
       console.error("Error accessing media devices:", error);
       setPermissionStatus('denied');
       toast.error("Could not access camera or microphone");
     }
+  };
+  
+  // Simulate connecting to a remote peer
+  const simulatePeerConnection = () => {
+    setConnectStatus('waiting');
+    
+    // Simulate searching for a peer
+    setTimeout(() => {
+      setConnectStatus('connecting');
+      toast.info("Finding a study buddy...");
+      
+      // Simulate connection established
+      setTimeout(() => {
+        // Create a simulated remote stream (in a real app, this would come from WebRTC)
+        if (localStream) {
+          // For demo, we'll just use our own stream as the remote one
+          // In a real app, this would be from the peer connection
+          setRemoteStream(localStream);
+          setConnectStatus('connected');
+          toast.success("Connected with study buddy!");
+        }
+      }, 3000);
+    }, 2000);
   };
   
   const toggleMic = () => {
@@ -160,14 +197,35 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
                     <div className="w-full h-full flex items-center justify-center">
                       <Avatar className="h-24 w-24">
                         <AvatarFallback className="bg-neon-purple text-white text-2xl">
-                          You
+                          {user ? user.name.split(' ').map(n => n[0]).join('') : 'You'}
                         </AvatarFallback>
                       </Avatar>
                     </div>
                   )}
                   <div className="absolute bottom-3 left-3 bg-black/40 text-white text-sm px-2 py-1 rounded">
-                    You {!micEnabled && "(Muted)"}
+                    {user ? user.name : 'You'} {!micEnabled && "(Muted)"}
                   </div>
+                  
+                  {/* Connection status */}
+                  {connectStatus !== 'connected' && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+                      <div className="text-center">
+                        {connectStatus === 'waiting' && (
+                          <>
+                            <div className="w-16 h-16 border-4 border-t-neon-cyan border-neon-cyan/30 rounded-full animate-spin mx-auto mb-4"></div>
+                            <p className="text-white text-xl">Waiting for a study buddy...</p>
+                          </>
+                        )}
+                        
+                        {connectStatus === 'connecting' && (
+                          <>
+                            <div className="w-16 h-16 border-4 border-t-neon-green border-neon-green/30 rounded-full animate-spin mx-auto mb-4"></div>
+                            <p className="text-white text-xl">Connecting with study buddy...</p>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   
                   {/* Distraction detection toggle */}
                   <div className="absolute top-3 right-3">
@@ -193,32 +251,37 @@ const VideoConference = ({ open, onClose, sessionData }: VideoConferenceProps) =
                 </div>
               </div>
               
-              {/* Participants video/avatar grid */}
+              {/* Remote participant video */}
               <div className="space-y-4">
-                <h3 className="text-white font-medium mb-2">Participants</h3>
+                <h3 className="text-white font-medium mb-2">Study Buddy</h3>
                 
-                {/* Placeholder for other participants */}
-                {sessionData?.buddies && sessionData.buddies.map((buddy, index) => (
-                  <div key={index} className="bg-black/40 rounded-lg p-2">
-                    <div className="flex items-center space-x-3">
-                      <Avatar>
-                        <AvatarFallback className="bg-neon-cyan/20 text-neon-cyan">
-                          {buddy.split(' ').map(n => n[0]).join('')}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="text-white">{buddy}</p>
-                        <p className="text-xs text-gray-400">Waiting to join...</p>
-                      </div>
+                <div className="bg-black/40 rounded-lg overflow-hidden relative h-48">
+                  {connectStatus === 'connected' && remoteStream ? (
+                    <video 
+                      ref={remoteVideoRef}
+                      autoPlay
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      {connectStatus === 'connected' ? (
+                        <Avatar className="h-16 w-16">
+                          <AvatarFallback className="bg-neon-cyan text-white">
+                            SB
+                          </AvatarFallback>
+                        </Avatar>
+                      ) : (
+                        <p className="text-gray-400">Waiting for connection...</p>
+                      )}
                     </div>
-                  </div>
-                ))}
-                
-                {(!sessionData?.buddies || sessionData.buddies.length === 0) && (
-                  <div className="text-center py-6 text-gray-400">
-                    No other participants yet
-                  </div>
-                )}
+                  )}
+                  
+                  {connectStatus === 'connected' && (
+                    <div className="absolute bottom-2 left-2 bg-black/40 text-white text-xs px-2 py-1 rounded">
+                      Study Buddy
+                    </div>
+                  )}
+                </div>
                 
                 <div className="p-3 rounded-lg bg-white/5 border border-white/10 mt-4">
                   <h4 className="text-white font-medium mb-2">Session Details</h4>

@@ -15,6 +15,8 @@ import FindBuddy from "./pages/FindBuddy";
 import Scheduling from "./pages/Scheduling";
 import Progress from "./pages/Progress";
 import Messages from "./pages/Messages";
+import { AuthProvider } from "./contexts/AuthContext";
+import ProtectedRoute from "./components/ProtectedRoute";
 
 const queryClient = new QueryClient();
 
@@ -24,20 +26,57 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/auth" element={<Auth />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/badges" element={<Badges />} />
-          <Route path="/pomodoro" element={<Pomodoro />} />
-          <Route path="/find-buddy" element={<FindBuddy />} />
-          <Route path="/scheduling" element={<Scheduling />} />
-          <Route path="/progress" element={<Progress />} />
-          <Route path="/messages" element={<Messages />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <AuthProvider>
+          <Routes>
+            <Route path="/" element={<Index />} />
+            <Route path="/auth" element={<Auth />} />
+            
+            {/* Protected Routes */}
+            <Route path="/dashboard" element={
+              <ProtectedRoute>
+                <Dashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/settings" element={
+              <ProtectedRoute>
+                <Settings />
+              </ProtectedRoute>
+            } />
+            <Route path="/badges" element={
+              <ProtectedRoute>
+                <Badges />
+              </ProtectedRoute>
+            } />
+            <Route path="/pomodoro" element={
+              <ProtectedRoute>
+                <Pomodoro />
+              </ProtectedRoute>
+            } />
+            <Route path="/find-buddy" element={
+              <ProtectedRoute>
+                <FindBuddy />
+              </ProtectedRoute>
+            } />
+            <Route path="/scheduling" element={
+              <ProtectedRoute>
+                <Scheduling />
+              </ProtectedRoute>
+            } />
+            <Route path="/progress" element={
+              <ProtectedRoute>
+                <Progress />
+              </ProtectedRoute>
+            } />
+            <Route path="/messages" element={
+              <ProtectedRoute>
+                <Messages />
+              </ProtectedRoute>
+            } />
+            
+            {/* Catch-all route */}
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
